@@ -17,6 +17,9 @@ void qtest_clock_warp(int64_t dest);
 extern int smp_cores;
 extern int smp_threads;
 void set_numa_modes(void);
+
+int cpus_smp_cpus_set(int cpu_n, const char *cpu_model);
+
 void set_cpu_log(const char *optarg);
 void set_cpu_log_filename(const char *optarg);
 void list_cpus(FILE *f, fprintf_function cpu_fprintf, const char *optarg);

@@ -30,6 +30,7 @@
 #include "hw/pci.h"
 #include "hw/watchdog.h"
 #include "hw/loader.h"
+#include "hw/boards.h"
 #include "gdbstub.h"
 #include "net.h"
 #include "net/slirp.h"
@@ -57,6 +58,7 @@
 #include "json-parser.h"
 #include "osdep.h"
 #include "cpu.h"
+#include "cpus.h"
 #include "trace.h"
 #include "trace/control.h"
 #ifdef CONFIG_TRACE_SIMPLE
@@ -2419,6 +2421,48 @@ int monitor_handle_fd_param(Monitor *mon, const char *fdname)
     }
 
     return fd;
+}
+
+static void monitor_smp_cpus_set(Monitor *mon, const QDict *qdict)
+{
+    QEMUMachine *machine;
+    int cpu_n; const char *cpu_model;
+
+    machine = current_machine;
+    cpu_n = qdict_get_int(qdict, "count");
+    cpu_model = qdict_get_try_str(qdict, "cpu_model");
+
+#ifdef DEBUG
+    monitor_printf(mon, "smp_cpus_set(count=%d, cpu_model=%s) machine=%s\n",
+                   cpu_n, cpu_model ? cpu_model : "NULL(def)", machine->name);
+#endif /* DEBUG */
+
+    if (cpu_n < 1) {
+        monitor_printf(mon, "smp_cpus_set: minimum nr of vcpus is 1.\n");
+        return;
+    }
+
+    if (cpu_n == smp_cpus) {
+        monitor_printf(mon, "smp_cpus_set: number of vcpus %d unchanged.\n",
+                       smp_cpus);
+        return;
+    }
+
+    if (cpu_n > machine->max_cpus) {
+        monitor_printf(mon, "smp_cpus_set: machine does not allow more than "
+                       "%d vcpus.\n", machine->max_cpus);
+        return;
+    }
+
+    if (cpu_n > max_cpus) {
+        monitor_printf(mon, "smp_cpus_set: user-configured max_cpus is %d.\n",
+                       max_cpus);
+        return;
+    }
+
+    if (!cpus_smp_cpus_set(cpu_n, cpu_model)) {
+        monitor_printf(mon, "smp_cpus_set: failed.\n");
+    }
 }
 
 /* mon_cmds and info_cmds would be sorted at runtime */

@@ -690,6 +690,36 @@ Set the default CPU.
 ETEXI
 
     {
+        .name       = "smp_cpus_set",
+        .args_type  = "count:i,cpu_model:s?",
+        .params     = "count [cpu_model]",
+        .help       = "set the number of virtual SMP cpus",
+        .mhandler.cmd = monitor_smp_cpus_set,
+    },
+
+STEXI
+@item smp_cpus_set @var{count} [@var{cpu_model}]
+@findex smp_cpus_set
+Set the number of virtual SMP cpus. If no cpu_model string is specified,
+a default CPU model for the current machine is used.
+ETEXI
+
+    {
+        .name       = "smp_cpus_set",
+        .args_type  = "count:i,cpu_model:s?",
+        .params     = "count [cpu_model]",
+        .help       = "set the number of virtual SMP cpus",
+        .mhandler.cmd = monitor_smp_cpus_set,
+    },
+
+STEXI
+@item smp_cpus_set @var{count} [@var{cpu_model}]
+@findex smp_cpus_set
+Set the number of virtual SMP cpus. If no cpu_model string is specified,
+a default CPU model for the current machine is used.
+ETEXI
+
+    {
         .name       = "mouse_move",
         .args_type  = "dx_str:s,dy_str:s,dz_str:s?",
         .params     = "dx dy [dz]",
