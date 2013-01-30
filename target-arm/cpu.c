@@ -199,6 +199,22 @@ void arm_cpu_realize(ARMCPU *cpu)
     register_cp_regs_for_features(cpu);
 }
 
+CPUArchState *arm_smp_cpus_add(const char *mname, int cpu_idx,
+                               const char *cpu_model)
+{
+    assert(mname != NULL);
+
+    fprintf(stderr, "arm_smp_cpus_add: not implemented yet.\n");
+    return NULL;
+}
+
+void arm_smp_cpus_remove(const char *mname, CPUArchState *env)
+{
+    assert(mname != NULL);
+
+    fprintf(stderr, "arm_smp_cpus_remove: not implemented yet.\n");
+}
+
 /* CPU models */
 
 static void arm926_initfn(Object *obj)

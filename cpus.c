@@ -37,6 +37,7 @@
 #include "qtest.h"
 #include "main-loop.h"
 #include "bitmap.h"
+#include "hw/boards.h"
 
 #ifndef _WIN32
 #include "compatfd.h"
@@ -1188,6 +1189,51 @@ int cpus_smp_cpus_set(int cpu_n, const char *cpu_model)
 {
     fprintf(stderr, "cpus_smp_cpus_set: not implemented for this target.\n");
     return 0;
+}
+
+void cpus_hotplug_complete(void) { return; }
+
+#else /* arch_smp_cpus_add */
+#include "hw/vcpu_hp.h"
+int cpus_smp_cpus_set(int cpu_n, const char *cpu_model)
+{
+    int i; QEMUMachine *machine; machine = current_machine;
+
+    assert(machine->name != NULL);
+    if (vcpu_hp_req_pending(vcpu_hp_dev)) {
+        fprintf(stderr, "cpus_smp_cpus_set: hotplug operation already pending.\n");
+        return 0;
+    }
+
+    vcpu_hp_reset(vcpu_hp_dev);
+
+    /* prepare the vcpu mask with the current VCPU state. */
+    for (i = 0; i < smp_cpus; i++) {
+        vcpu_hp_req_set(vcpu_hp_dev, i);
+    }
+
+    /* create and start the missing secondary cpus if smp_cpus < cpu_n */
+    for (i = smp_cpus; i < cpu_n; i++) {
+        CPUArchState *env;
+        env = arch_smp_cpus_add(machine->name, i, cpu_model);
+
+        if (!env) {
+            fprintf(stderr, "cpus_smp_cpus_set: failed to add cpu %d.\n", i);
+            break;
+        }
+
+        cpus_set_numa_node(env);
+        resume_vcpu(env);
+        /* note: we only set the vcpu bits for VCPUs we successfully added. */
+        vcpu_hp_req_set(vcpu_hp_dev, i);
+    }
+
+    /* queue the secondary cpus that should be offlined and destroyed */
+    for (i = cpu_n; i < smp_cpus; i++) {
+        vcpu_hp_req_clear(vcpu_hp_dev, i);
+    }
+
+    return vcpu_hp_req_fire(vcpu_hp_dev);
 }
 
 void cpus_hotplug_complete(void) { return; }

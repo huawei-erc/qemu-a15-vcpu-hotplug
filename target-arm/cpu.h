@@ -24,6 +24,8 @@
 #define ELF_MACHINE	EM_ARM
 
 #define CPUArchState struct CPUARMState
+#define arch_smp_cpus_add arm_smp_cpus_add
+#define arch_smp_cpus_remove arm_smp_cpus_remove
 
 #include "config.h"
 #include "qemu-common.h"
@@ -238,6 +240,10 @@ typedef struct CPUARMState {
 #include "cpu-qom.h"
 
 ARMCPU *cpu_arm_init(const char *cpu_model);
+CPUArchState *arm_smp_cpus_add(const char *mname, int cpu_n,
+                               const char *cpu_model);
+void arm_smp_cpus_remove(const char *mname, CPUArchState *env);
+
 void arm_translate_init(void);
 int cpu_arm_exec(CPUARMState *s);
 void do_interrupt(CPUARMState *);
