@@ -3871,7 +3871,7 @@ int main(int argc, char **argv, char **envp)
 
     cpu_synchronize_all_post_init();
 
-    set_numa_modes();
+    cpus_set_all_numa_nodes();
 
     current_machine = machine;
 

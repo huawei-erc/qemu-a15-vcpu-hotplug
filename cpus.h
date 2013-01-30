@@ -16,8 +16,8 @@ void qtest_clock_warp(int64_t dest);
 /* vl.c */
 extern int smp_cores;
 extern int smp_threads;
-void set_numa_modes(void);
 
+void cpus_set_all_numa_nodes(void);
 int cpus_smp_cpus_set(int cpu_n, const char *cpu_model);
 
 void set_cpu_log(const char *optarg);

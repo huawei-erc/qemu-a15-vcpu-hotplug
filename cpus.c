@@ -971,16 +971,21 @@ void pause_all_vcpus(void)
     }
 }
 
+static void resume_vcpu(CPUArchState *env)
+{
+    CPUState *cpu; cpu = ENV_GET_CPU(env);
+    cpu->stop = false;
+    cpu->stopped = false;
+    qemu_cpu_kick(cpu);
+}
+
 void resume_all_vcpus(void)
 {
     CPUArchState *penv = first_cpu;
 
     qemu_clock_enable(vm_clock, true);
     while (penv) {
-        CPUState *pcpu = ENV_GET_CPU(penv);
-        pcpu->stop = false;
-        pcpu->stopped = false;
-        qemu_cpu_kick(pcpu);
+        resume_vcpu(penv);
         penv = penv->next_cpu;
     }
 }
@@ -1157,17 +1162,24 @@ static void tcg_exec_all(void)
     exit_request = 0;
 }
 
-void set_numa_modes(void)
+static void cpus_set_numa_node(CPUArchState *env)
 {
-    CPUArchState *env;
     int i;
 
-    for (env = first_cpu; env != NULL; env = env->next_cpu) {
-        for (i = 0; i < nb_numa_nodes; i++) {
-            if (test_bit(env->cpu_index, node_cpumask[i])) {
-                env->numa_node = i;
-            }
+    for (i = 0; i < nb_numa_nodes; i++) {
+        if (test_bit(env->cpu_index, node_cpumask[i])) {
+            env->numa_node = i;
+            break;
         }
+    }
+}
+
+void cpus_set_all_numa_nodes(void)
+{
+    CPUArchState *env;
+
+    for (env = first_cpu; env != NULL; env = env->next_cpu) {
+        cpus_set_numa_node(env);
     }
 }
 
