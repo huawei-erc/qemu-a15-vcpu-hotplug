@@ -47,6 +47,7 @@ void qemu_system_reset_request(void);
 void qemu_system_suspend_request(void);
 void qemu_register_suspend_notifier(Notifier *notifier);
 void qemu_system_wakeup_request(WakeupReason reason);
+void qemu_vcpu_hp_request(void);
 void qemu_system_wakeup_enable(WakeupReason reason, bool enabled);
 void qemu_register_wakeup_notifier(Notifier *notifier);
 void qemu_system_shutdown_request(void);

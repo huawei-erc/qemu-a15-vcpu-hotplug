@@ -1472,6 +1472,7 @@ static int powerdown_requested;
 static int debug_requested;
 static int suspend_requested;
 static int wakeup_requested;
+static int vcpu_hp_requested;
 static NotifierList powerdown_notifiers =
     NOTIFIER_LIST_INITIALIZER(powerdown_notifiers);
 static NotifierList suspend_notifiers =
@@ -1532,6 +1533,13 @@ static int qemu_wakeup_requested(void)
 {
     int r = wakeup_requested;
     wakeup_requested = 0;
+    return r;
+}
+
+static int qemu_vcpu_hp_requested(void)
+{
+    int r = vcpu_hp_requested;
+    vcpu_hp_requested = 0;
     return r;
 }
 
@@ -1654,6 +1662,11 @@ void qemu_system_wakeup_request(WakeupReason reason)
     qemu_notify_event();
 }
 
+void qemu_vcpu_hp_request(void)
+{
+    vcpu_hp_requested = 1;
+}
+
 void qemu_system_wakeup_enable(WakeupReason reason, bool enabled)
 {
     if (enabled) {
@@ -1746,6 +1759,14 @@ static bool main_loop_should_exit(void)
         resume_all_vcpus();
         monitor_protocol_event(QEVENT_WAKEUP, NULL);
     }
+
+    if (qemu_vcpu_hp_requested()) {
+        pause_all_vcpus();
+        cpu_synchronize_all_states();
+        cpus_hotplug_complete();
+        resume_all_vcpus();
+    }
+
     if (qemu_powerdown_requested()) {
         qemu_system_powerdown();
     }

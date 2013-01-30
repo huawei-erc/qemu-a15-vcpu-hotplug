@@ -1189,6 +1189,9 @@ int cpus_smp_cpus_set(int cpu_n, const char *cpu_model)
     fprintf(stderr, "cpus_smp_cpus_set: not implemented for this target.\n");
     return 0;
 }
+
+void cpus_hotplug_complete(void) { return; }
+
 #endif /* arch_smp_cpus_add */
 
 void set_cpu_log(const char *optarg)

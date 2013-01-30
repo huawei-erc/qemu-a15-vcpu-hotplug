@@ -19,6 +19,7 @@ extern int smp_threads;
 
 void cpus_set_all_numa_nodes(void);
 int cpus_smp_cpus_set(int cpu_n, const char *cpu_model);
+void cpus_hotplug_complete(void);
 
 void set_cpu_log(const char *optarg);
 void set_cpu_log_filename(const char *optarg);
