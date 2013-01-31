@@ -29,6 +29,7 @@ typedef int (*gdb_reg_cb)(CPUArchState *env, uint8_t *buf, int reg);
 void gdb_register_coprocessor(CPUArchState *env,
                               gdb_reg_cb get_reg, gdb_reg_cb set_reg,
                               int num_regs, const char *xml, int g_pos);
+void gdb_unregister_all_coprocessors(CPUArchState *env);
 
 static inline int cpu_index(CPUArchState *env)
 {

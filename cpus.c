@@ -67,7 +67,7 @@ static bool cpu_thread_is_idle(CPUArchState *env)
 {
     CPUState *cpu = ENV_GET_CPU(env);
 
-    if (cpu->stop || cpu->queued_work_first) {
+    if (cpu->stop || cpu->exit || cpu->queued_work_first) {
         return false;
     }
     if (cpu->stopped || !runstate_is_running()) {
@@ -457,6 +457,10 @@ static bool cpu_can_run(CPUState *cpu)
     if (cpu->stopped || !runstate_is_running()) {
         return false;
     }
+    if (cpu->exit) {
+        return false;
+    }
+
     return true;
 }
 
@@ -760,9 +764,14 @@ static void *qemu_kvm_cpu_thread_fn(void *arg)
                 cpu_handle_guest_debug(env);
             }
         }
+        if (cpu->exit) {
+            break;
+        }
         qemu_kvm_wait_io_event(env);
     }
 
+    kvm_fini_vcpu(env);
+    qemu_mutex_unlock(&qemu_global_mutex);
     return NULL;
 }
 
@@ -800,6 +809,11 @@ static void *qemu_dummy_cpu_thread_fn(void *arg)
             perror("sigwait");
             exit(1);
         }
+
+        if (cpu->exit) {
+            break;
+        }
+
         qemu_mutex_lock_iothread();
         cpu_single_env = env;
         qemu_wait_io_event_common(cpu);
@@ -954,7 +968,7 @@ void pause_all_vcpus(void)
         if (!kvm_enabled()) {
             while (penv) {
                 CPUState *pcpu = ENV_GET_CPU(penv);
-                pcpu->stop = 0;
+                pcpu->stop = false;
                 pcpu->stopped = true;
                 penv = penv->next_cpu;
             }
@@ -1014,6 +1028,11 @@ static void qemu_tcg_init_vcpu(CPUState *cpu)
     }
 }
 
+static void qemu_tcg_fini_vcpu(void *_env)
+{
+    /* nothing to do */
+}
+
 static void qemu_kvm_start_vcpu(CPUArchState *env)
 {
     CPUState *cpu = ENV_GET_CPU(env);
@@ -1026,6 +1045,18 @@ static void qemu_kvm_start_vcpu(CPUArchState *env)
     while (!cpu->created) {
         qemu_cond_wait(&qemu_cpu_cond, &qemu_global_mutex);
     }
+}
+
+static void qemu_kvm_fini_vcpu(CPUArchState *env)
+{
+    CPUState *cpu = ENV_GET_CPU(env);
+
+    g_free(cpu->thread);
+    cpu->thread = NULL;
+
+    qemu_cond_destroy(cpu->halt_cond);
+    g_free(cpu->halt_cond);
+    cpu->halt_cond = NULL;
 }
 
 static void qemu_dummy_start_vcpu(CPUArchState *env)
@@ -1042,6 +1073,18 @@ static void qemu_dummy_start_vcpu(CPUArchState *env)
     }
 }
 
+static void qemu_dummy_fini_vcpu(CPUArchState *env)
+{
+    CPUState *cpu = ENV_GET_CPU(env);
+
+    g_free(cpu->thread);
+    cpu->thread = NULL;
+
+    qemu_cond_destroy(cpu->halt_cond);
+    g_free(cpu->halt_cond);
+    cpu->halt_cond = NULL;
+}
+
 void qemu_init_vcpu(void *_env)
 {
     CPUArchState *env = _env;
@@ -1056,6 +1099,19 @@ void qemu_init_vcpu(void *_env)
         qemu_tcg_init_vcpu(cpu);
     } else {
         qemu_dummy_start_vcpu(env);
+    }
+}
+
+void qemu_fini_vcpu(void *_env)
+{
+    CPUArchState *env = _env;
+
+    if (kvm_enabled()) {
+        qemu_kvm_fini_vcpu(env);
+    } else if (tcg_enabled()) {
+        qemu_tcg_fini_vcpu(env);
+    } else {
+        qemu_dummy_fini_vcpu(env);
     }
 }
 
@@ -1158,6 +1214,10 @@ static void tcg_exec_all(void)
             }
         } else if (cpu->stop || cpu->stopped) {
             break;
+
+        } else if (cpu->exit) {
+            /* this CPU pseudo-thread should exit! */
+            break;
         }
     }
     exit_request = 0;
@@ -1236,7 +1296,53 @@ int cpus_smp_cpus_set(int cpu_n, const char *cpu_model)
     return vcpu_hp_req_fire(vcpu_hp_dev);
 }
 
-void cpus_hotplug_complete(void) { return; }
+void cpus_hotplug_complete(void)
+{
+    CPUArchState *env, *prev, *next; int ncpus = 0;
+    QEMUMachine *machine; machine = current_machine;
+
+    for (env = first_cpu, prev = NULL; env != NULL; env = next) {
+        CPUState *cpu;
+        next = env->next_cpu;
+
+        if (vcpu_hp_resp_is_set(vcpu_hp_dev, env->cpu_index)) {
+            /* this vcpu is marked as online, should continue running. */
+            prev = env;
+            ncpus += 1;
+            continue;
+        }
+
+        if (env == first_cpu) {
+            fprintf(stderr, "cpus_hotplug_complete: cannot remove CPU0.\n");
+            prev = env;
+            ncpus += 1;
+            continue;
+        }
+
+        /* update link to skip this VCPU. */
+        prev->next_cpu = next;
+
+        /* the guest has signaled that VCPU offlining is complete. */
+        /* signal the cpu thread that it should exit. */
+        cpu = ENV_GET_CPU(env);
+        cpu->exit = true;
+
+        /* we need to let the VCPU thread execute now, so we unlock
+           the iothread mutex to let the VCPU thread exit. */
+        qemu_mutex_unlock_iothread();
+        resume_vcpu(env);
+        qemu_thread_join(cpu->thread);
+        qemu_mutex_lock_iothread();
+
+        qemu_fini_vcpu(env);
+
+        /* call the arch-specific removal function. This frees env. */
+        arch_smp_cpus_remove(machine->name, env);
+    }
+
+    /* update the global smp cpus count */
+    smp_cpus = ncpus;
+}
 
 #endif /* arch_smp_cpus_add */
 

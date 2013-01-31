@@ -29,6 +29,10 @@ int kvm_init_vcpu(CPUArchState *env)
     return -ENOSYS;
 }
 
+void kvm_fini_vcpu(CPUArchState *env)
+{
+}
+
 int kvm_init(void)
 {
     return -ENOSYS;

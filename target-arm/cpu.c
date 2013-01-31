@@ -165,6 +165,7 @@ static void arm_cpu_finalizefn(Object *obj)
 {
     ARMCPU *cpu = ARM_CPU(obj);
     g_hash_table_destroy(cpu->cp_regs);
+    cpu_exec_fini(&cpu->env);
 }
 
 void arm_cpu_realize(ARMCPU *cpu)
@@ -247,9 +248,15 @@ CPUArchState *arm_smp_cpus_add(const char *mname, int cpu_idx,
 
 void arm_smp_cpus_remove(const char *mname, CPUArchState *env)
 {
+    ARMCPU *cpu; cpu = arm_env_get_cpu(env);
     assert(mname != NULL);
 
-    fprintf(stderr, "arm_smp_cpus_remove: not implemented yet.\n");
+    if (strcmp(mname, "vexpress-a15-para") != 0) {
+        fprintf(stderr, "arm_smp_cpus_remove: only vexpress-a15-para is supported.\n");
+        assert(0);
+    }
+
+    vexpress_a15_cpu_free_sec(cpu);
 }
 
 /* CPU models */

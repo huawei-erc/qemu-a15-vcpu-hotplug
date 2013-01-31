@@ -61,6 +61,7 @@
 #include "cputlb.h"
 
 #include "memory-internal.h"
+#include "gdbstub.h"
 
 //#define DEBUG_TB_INVALIDATE
 //#define DEBUG_FLUSH
@@ -726,6 +727,24 @@ void cpu_exec_init(CPUArchState *env)
     register_savevm(NULL, "cpu", cpu_index, CPU_SAVE_VERSION,
                     cpu_save, cpu_load, env);
 #endif
+}
+
+void cpu_exec_fini(CPUArchState *env)
+{
+    /* warning! env, env->next pointer update is done in cpus.c! */
+#if defined(CPU_SAVE_VERSION) && !defined(CONFIG_USER_ONLY)
+    unregister_savevm(NULL, "cpu", env);
+    vmstate_unregister(NULL, &vmstate_cpu_common, env);
+#endif
+    cpu_breakpoint_remove_all(env, BP_GDB);
+    cpu_breakpoint_remove_all(env, BP_CPU);
+    cpu_watchpoint_remove_all(env, BP_GDB);
+    cpu_watchpoint_remove_all(env, BP_CPU);
+    QTAILQ_INIT(&env->breakpoints);
+    QTAILQ_INIT(&env->watchpoints);
+    /* this reverts the registrations done in
+       arm_cpu_init, cpu_ppc_register_internal et al. */
+    gdb_unregister_all_coprocessors(env);
 }
 
 /* Allocate a new translation block. Flush the translation buffer if

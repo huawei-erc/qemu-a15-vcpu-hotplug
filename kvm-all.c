@@ -261,6 +261,11 @@ err:
     return ret;
 }
 
+void kvm_fini_vcpu(CPUArchState *env)
+{
+    qemu_unregister_reset(kvm_reset_vcpu, env);
+}
+
 /*
  * dirty pages logging control
  */

@@ -122,6 +122,7 @@ int kvm_has_intx_set_mask(void);
 
 #ifdef NEED_CPU_H
 int kvm_init_vcpu(CPUArchState *env);
+void kvm_fini_vcpu(CPUArchState *env);
 
 int kvm_cpu_exec(CPUArchState *env);
 

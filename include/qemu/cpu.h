@@ -76,6 +76,7 @@ struct CPUState {
     bool created;
     bool stop;
     bool stopped;
+    bool exit;
 
     /* TODO Move common fields from CPUArchState here. */
 };

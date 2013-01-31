@@ -48,6 +48,17 @@ void sysbus_connect_irq(SysBusDevice *dev, int n, qemu_irq irq)
     }
 }
 
+qemu_irq *sysbus_disconnect_irq(SysBusDevice *dev, int n)
+{
+    qemu_irq *irq;
+
+    assert(n >= 0 && n < dev->num_irq);
+    dev->irqs[n] = NULL;
+    irq = dev->irqp[n];
+    dev->irqp[n] = NULL;
+    return irq;
+}
+
 void sysbus_mmio_map(SysBusDevice *dev, int n, hwaddr addr)
 {
     assert(n >= 0 && n < dev->num_mmio);

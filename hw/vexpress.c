@@ -302,6 +302,21 @@ ARMCPU *vexpress_a15_cpu_init_sec(const char *cpu_model, int n)
     return cpu;
 }
 
+/* hot remove a secondary cpu at runtime */
+void vexpress_a15_cpu_free_sec(ARMCPU *cpu)
+{
+    SysBusDevice *busdev;
+    busdev = sysbus_from_qdev(vexpress_mpcore_dev);
+    sysbus_disconnect_irq(busdev, cpu->env.cpu_index);
+    if (cpu->irqs != NULL) {
+        qemu_free_irqs(cpu->irqs);
+        cpu->irqs = NULL;
+    }
+
+    qemu_unregister_reset(arm_cpu_machine_reset_cb, ENV_GET_CPU(&cpu->env));
+    object_delete(OBJECT(cpu));
+}
+
 static void a15_daughterboard_init(const VEDBoardInfo *daughterboard,
                                    ram_addr_t ram_size,
                                    const char *cpu_model,

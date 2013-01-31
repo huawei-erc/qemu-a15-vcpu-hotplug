@@ -1913,7 +1913,17 @@ void gdb_register_coprocessor(CPUArchState * env,
         }
     }
 }
-#endif
+
+void gdb_unregister_all_coprocessors(CPUArchState *env)
+{
+    GDBRegisterState *this, *next;
+    for (this = env->gdb_regs; this != NULL; this = next) {
+        next = this->next;
+        g_free(this);
+    }
+}
+
+#endif /* !TARGET_XTENSA */
 
 #ifndef CONFIG_USER_ONLY
 static const int xlat_gdb_type[] = {
