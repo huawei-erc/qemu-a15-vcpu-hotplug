@@ -21,6 +21,7 @@
 #define QEMU_ARM_CPU_QOM_H
 
 #include "qemu/cpu.h"
+#include "hw/irq.h"
 
 #define TYPE_ARM_CPU "arm-cpu"
 
@@ -60,6 +61,8 @@ typedef struct ARMCPU {
 
     /* Coprocessor information */
     GHashTable *cp_regs;
+    /* If not NULL, the allocated cpu irqs */
+    qemu_irq *irqs;
 
     /* The instance init functions for implementation-specific subclasses
      * set these fields to specify the implementation-dependent values of

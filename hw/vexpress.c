@@ -31,12 +31,17 @@
 #include "exec-memory.h"
 #include "blockdev.h"
 #include "flash.h"
+#include "vexpress.h"
 
 #define VEXPRESS_BOARD_ID 0x8e0
+#define VEXPRESS_MAX_CPUS 4
 #define VEXPRESS_FLASH_SIZE (64 * 1024 * 1024)
 #define VEXPRESS_FLASH_SECT_SIZE (256 * 1024)
 
 static struct arm_boot_info vexpress_binfo;
+
+/* for hotplug of CPUs */
+static DeviceState *vexpress_mpcore_dev;
 
 /* Address maps for peripherals:
  * the Versatile Express motherboard has two possible maps,
@@ -72,6 +77,7 @@ enum {
     VE_ETHERNET,
     VE_USB,
     VE_DAPROM,
+    VE_PARA,
 };
 
 static hwaddr motherboard_legacy_map[] = {
@@ -140,6 +146,12 @@ static hwaddr motherboard_aseries_map[] = {
     [VE_CLCD] = 0x1c1f0000,
 };
 
+static hwaddr motherboard_aseries_para_map[
+  ARRAY_SIZE(motherboard_aseries_map) + 1
+] = {
+    [VE_PARA] = 0x12000000,
+};
+
 /* Structure defining the peculiarities of a specific daughterboard */
 
 typedef struct VEDBoardInfo VEDBoardInfo;
@@ -150,9 +162,9 @@ typedef void DBoardInitFn(const VEDBoardInfo *daughterboard,
                           qemu_irq *pic, uint32_t *proc_id);
 
 struct VEDBoardInfo {
-    const hwaddr *motherboard_map;
+    hwaddr *motherboard_map;
     hwaddr loader_start;
-    const hwaddr gic_cpu_if_addr;
+    hwaddr gic_cpu_if_addr;
     DBoardInitFn *init;
 };
 
@@ -168,7 +180,7 @@ static void a9_daughterboard_init(const VEDBoardInfo *daughterboard,
     SysBusDevice *busdev;
     qemu_irq *irqp;
     int n;
-    qemu_irq cpu_irq[4];
+    qemu_irq cpu_irq[VEXPRESS_MAX_CPUS];
     ram_addr_t low_ram_size;
 
     if (!cpu_model) {
@@ -254,6 +266,42 @@ static const VEDBoardInfo a9_daughterboard = {
     .init = a9_daughterboard_init,
 };
 
+static ARMCPU *vexpress_a15_cpu_init(const char *cpu_model, int n)
+{
+    ARMCPU *cpu; SysBusDevice *busdev;
+
+    if (!cpu_model) {
+        cpu_model = "cortex-a15";
+    }
+
+    cpu = cpu_arm_init(cpu_model);
+    if (!cpu) {
+        fprintf(stderr, "Unable to find CPU definition\n");
+        return NULL;
+    }
+
+    cpu->irqs = arm_pic_init_cpu(cpu);
+    busdev = sysbus_from_qdev(vexpress_mpcore_dev);
+    sysbus_connect_irq(busdev, n, cpu->irqs[ARM_PIC_CPU_IRQ]);
+
+    return cpu;
+}
+
+/* hot init a secondary cpu at runtime */
+ARMCPU *vexpress_a15_cpu_init_sec(const char *cpu_model, int n)
+{
+    ARMCPU *cpu;
+    cpu = vexpress_a15_cpu_init(cpu_model, n);
+
+    if (!cpu) {
+        return NULL;
+    }
+
+    cpu->env.boot_info = &vexpress_binfo;
+    qemu_register_reset(arm_cpu_machine_reset_cb, ENV_GET_CPU(&cpu->env));
+    return cpu;
+}
+
 static void a15_daughterboard_init(const VEDBoardInfo *daughterboard,
                                    ram_addr_t ram_size,
                                    const char *cpu_model,
@@ -263,27 +311,25 @@ static void a15_daughterboard_init(const VEDBoardInfo *daughterboard,
     MemoryRegion *sysmem = get_system_memory();
     MemoryRegion *ram = g_new(MemoryRegion, 1);
     MemoryRegion *sram = g_new(MemoryRegion, 1);
-    qemu_irq cpu_irq[4];
     DeviceState *dev;
     SysBusDevice *busdev;
 
-    if (!cpu_model) {
-        cpu_model = "cortex-a15";
-    }
+    /* 0x2c000000 A15MPCore private memory region (GIC) */
+    vexpress_mpcore_dev = dev = qdev_create(NULL, "a15mpcore_priv");
+    qdev_prop_set_uint32(dev, "num-cpu", max_cpus);
+    qdev_init_nofail(dev);
+    busdev = sysbus_from_qdev(dev);
+    sysbus_mmio_map(busdev, 0, 0x2c000000);
 
     *proc_id = 0x14000217;
 
     for (n = 0; n < smp_cpus; n++) {
         ARMCPU *cpu;
-        qemu_irq *irqp;
-
-        cpu = cpu_arm_init(cpu_model);
+        cpu = vexpress_a15_cpu_init(cpu_model, n);
         if (!cpu) {
             fprintf(stderr, "Unable to find CPU definition\n");
             exit(1);
         }
-        irqp = arm_pic_init_cpu(cpu);
-        cpu_irq[n] = irqp[ARM_PIC_CPU_IRQ];
     }
 
     {
@@ -303,15 +349,6 @@ static void a15_daughterboard_init(const VEDBoardInfo *daughterboard,
     /* RAM is from 0x80000000 upwards; there is no low-memory alias for it. */
     memory_region_add_subregion(sysmem, 0x80000000, ram);
 
-    /* 0x2c000000 A15MPCore private memory region (GIC) */
-    dev = qdev_create(NULL, "a15mpcore_priv");
-    qdev_prop_set_uint32(dev, "num-cpu", smp_cpus);
-    qdev_init_nofail(dev);
-    busdev = sysbus_from_qdev(dev);
-    sysbus_mmio_map(busdev, 0, 0x2c000000);
-    for (n = 0; n < smp_cpus; n++) {
-        sysbus_connect_irq(busdev, n, cpu_irq[n]);
-    }
     /* Interrupts [42:0] are from the motherboard;
      * [47:43] are reserved; [63:48] are daughterboard
      * peripherals. Note that some documentation numbers
@@ -340,12 +377,27 @@ static void a15_daughterboard_init(const VEDBoardInfo *daughterboard,
     /* 0x7ffd0000: PL354 static memory controller: not modelled */
 }
 
+static void a15_daughterboard_para_init(const VEDBoardInfo *daughterboard,
+                                        ram_addr_t ram_size,
+                                        const char *cpu_model,
+                                        qemu_irq *pic, uint32_t *proc_id)
+{
+    a15_daughterboard_init(daughterboard, ram_size, cpu_model, pic, proc_id);
+
+    /* add the paravirtualized characteristics */
+    sysbus_create_simple("vcpu_hp",
+                         daughterboard->motherboard_map[VE_PARA],
+                         pic[63]);
+}
+
 static const VEDBoardInfo a15_daughterboard = {
     .motherboard_map = motherboard_aseries_map,
     .loader_start = 0x80000000,
     .gic_cpu_if_addr = 0x2c002000,
     .init = a15_daughterboard_init,
 };
+
+static VEDBoardInfo a15_daughterboard_para;
 
 static void vexpress_common_init(const VEDBoardInfo *daughterboard,
                                  QEMUMachineInitArgs *args)
@@ -454,7 +506,7 @@ static void vexpress_common_init(const VEDBoardInfo *daughterboard,
     vexpress_binfo.kernel_filename = args->kernel_filename;
     vexpress_binfo.kernel_cmdline = args->kernel_cmdline;
     vexpress_binfo.initrd_filename = args->initrd_filename;
-    vexpress_binfo.nb_cpus = smp_cpus;
+    vexpress_binfo.nb_cpus = max_cpus;
     vexpress_binfo.board_id = VEXPRESS_BOARD_ID;
     vexpress_binfo.loader_start = daughterboard->loader_start;
     vexpress_binfo.smp_loader_start = map[VE_SRAM];
@@ -473,12 +525,37 @@ static void vexpress_a15_init(QEMUMachineInitArgs *args)
     vexpress_common_init(&a15_daughterboard, args);
 }
 
+static void vexpress_a15_para_init(QEMUMachineInitArgs *args)
+{
+    int i; hwaddr para_addr;
+
+    /* copy the daughterboard and add the paravirtualized characteristics */
+    a15_daughterboard_para = a15_daughterboard;
+    a15_daughterboard_para.motherboard_map = motherboard_aseries_para_map;
+    a15_daughterboard_para.init = a15_daughterboard_para_init;
+
+    /* save the address reserved for paravirtualization.
+       We do not want to rely on the order of the VE_ enum, so it could
+       be overwritten in the loop below. And we want the VE_PARA address
+       to be visible at the beginning of the file. */
+    para_addr = motherboard_aseries_para_map[VE_PARA]; /* save */
+
+    for (i = 0; i < ARRAY_SIZE(motherboard_aseries_map); i++) {
+        motherboard_aseries_para_map[i] = motherboard_aseries_map[i];
+    }
+
+    motherboard_aseries_para_map[VE_PARA] = para_addr; /* restore */
+
+    /* finally call the common init function as usual. */
+    vexpress_common_init(&a15_daughterboard_para, args);
+}
+
 static QEMUMachine vexpress_a9_machine = {
     .name = "vexpress-a9",
     .desc = "ARM Versatile Express for Cortex-A9",
     .init = vexpress_a9_init,
     .use_scsi = 1,
-    .max_cpus = 4,
+    .max_cpus = VEXPRESS_MAX_CPUS,
 };
 
 static QEMUMachine vexpress_a15_machine = {
@@ -486,13 +563,23 @@ static QEMUMachine vexpress_a15_machine = {
     .desc = "ARM Versatile Express for Cortex-A15",
     .init = vexpress_a15_init,
     .use_scsi = 1,
-    .max_cpus = 4,
+    .max_cpus = VEXPRESS_MAX_CPUS,
+};
+
+static QEMUMachine vexpress_a15_para_machine = {
+    .name = "vexpress-a15-para",
+    .desc = "ARM Versatile Express for Cortex-A15 "
+    "augmented with paravirtualized devices",
+    .init = vexpress_a15_para_init,
+    .use_scsi = 1,
+    .max_cpus = VEXPRESS_MAX_CPUS,
 };
 
 static void vexpress_machine_init(void)
 {
     qemu_register_machine(&vexpress_a9_machine);
     qemu_register_machine(&vexpress_a15_machine);
+    qemu_register_machine(&vexpress_a15_para_machine);
 }
 
 machine_init(vexpress_machine_init);

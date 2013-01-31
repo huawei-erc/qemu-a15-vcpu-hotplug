@@ -23,6 +23,8 @@
 #if !defined(CONFIG_USER_ONLY)
 #include "hw/loader.h"
 #endif
+#include "hw/arm-misc.h"
+#include "kvm.h"
 #include "sysemu.h"
 
 static void cp_reg_reset(gpointer key, gpointer value, gpointer opaque)
@@ -127,6 +129,17 @@ static void arm_cpu_reset(CPUState *s)
     tb_flush(env);
 }
 
+/* arm_cpu_machine_reset_cb:
+   this function exists just to avoid the cast that would otherwise be
+   necessary when calling qemu_register_reset, as in
+   qemu_register_reset((QEMUResetHandler *)cpu_reset, ENV_GET_CPU(&cpu->env));
+*/
+void arm_cpu_machine_reset_cb(void *opaque)
+{
+    CPUState *s; s = opaque;
+    arm_cpu_reset(s);
+}
+
 static inline void set_feature(CPUARMState *env, int feature)
 {
     env->features |= 1ULL << feature;
@@ -199,13 +212,30 @@ void arm_cpu_realize(ARMCPU *cpu)
     register_cp_regs_for_features(cpu);
 }
 
+#include "hw/vexpress.h"
 CPUArchState *arm_smp_cpus_add(const char *mname, int cpu_idx,
                                const char *cpu_model)
 {
+    ARMCPU *cpu;
     assert(mname != NULL);
 
-    fprintf(stderr, "arm_smp_cpus_add: not implemented yet.\n");
-    return NULL;
+    if (strcmp(mname, "vexpress-a15-para") != 0) {
+        fprintf(stderr, "arm_smp_cpus_add: only vexpress-a15-para is supported.\n");
+        return NULL;
+    }
+
+    /* create the secondary cpu */
+    cpu = vexpress_a15_cpu_init_sec(cpu_model, cpu_idx);
+    if (!cpu) {
+        return NULL;
+    }
+
+    cpu_synchronize_post_init(&cpu->env);
+    cpu_reset(ENV_GET_CPU(&cpu->env));
+    cpu_synchronize_post_reset(&cpu->env);
+    cpu_synchronize_state(&cpu->env);
+
+    return &cpu->env;
 }
 
 void arm_smp_cpus_remove(const char *mname, CPUArchState *env)
