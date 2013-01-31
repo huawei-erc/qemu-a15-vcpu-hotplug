@@ -1,3 +1,26 @@
+VCPU Hotplug, (c) 2012-2013 Huawei Technologies Duesseldorf GmBH
+
+All the changes are Copyright 2012-2013 Huawei Technologies Duesseldorf GmBH
+They are licensed under the terms of the GNU GPL, version 2 or later.
+See the COPYING file in the top-level directory.
+
+The branch "vcpu-hp-ioctl-change" has linux headers which are compatible
+with the change in the KVM ARM ioctl API
+KVM_SET_DEVICE_ADDRESS -> KVM_ARM_SET_DEVICE_ADDR.
+
+If you use a kernel which uses the KVM_SET_DEVICE_ADDRESS name instead,
+use the branch "vcpu-hp".
+
+The kernel version available here uses KVM_ARM_SET_DEVICE_ADDR, so
+the suggestion is to use the default "vcpu-hp-ioctl-change" branch.
+
+More detailed information about how to set up the full VCPU Hotplug feat
+will be available as soon as the kernel branch is also pushed.
+
+Claudio Fontana, claudio.fontana@huawei.com
+
+---original QEmu README follows:
+
 Read the documentation in qemu-doc.html or on http://wiki.qemu.org
 
 - QEMU team
