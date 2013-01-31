@@ -82,6 +82,8 @@ struct KVMState
     int vcpu_events;
     int robust_singlestep;
     int debugregs;
+    long vcpu_mmap_size;
+    int *cached_vcpu_fds;
 #ifdef KVM_CAP_SET_GUEST_DEBUG
     struct kvm_sw_breakpoint_head kvm_sw_breakpoints;
 #endif
@@ -214,17 +216,36 @@ static void kvm_reset_vcpu(void *opaque)
     kvm_arch_reset_vcpu(env);
 }
 
+static int kvm_get_cached_vcpu_fd(int vcpu_index)
+{
+    KVMState *s = kvm_state;
+    return s->cached_vcpu_fds[vcpu_index];
+}
+
+static void kvm_set_cached_vcpu_fd(int vcpu_index, int fd)
+{
+    KVMState *s = kvm_state;
+    s->cached_vcpu_fds[vcpu_index] = fd;
+}
+
 int kvm_init_vcpu(CPUArchState *env)
 {
     KVMState *s = kvm_state;
-    long mmap_size;
-    int ret;
+    int ret, cached;
 
     DPRINTF("kvm_init_vcpu\n");
 
-    ret = kvm_vm_ioctl(s, KVM_CREATE_VCPU, env->cpu_index);
+    ret = kvm_get_cached_vcpu_fd(env->cpu_index);
+
     if (ret < 0) {
-        DPRINTF("kvm_create_vcpu failed\n");
+        ret = kvm_vm_ioctl(s, KVM_CREATE_VCPU, env->cpu_index);
+        cached = 0;
+    } else {
+        cached = 1;
+    }
+
+    if (ret < 0) {
+        DPRINTF("could not create vcpu (%scached)\n", cached ? "" : "not ");
         goto err;
     }
 
@@ -232,15 +253,12 @@ int kvm_init_vcpu(CPUArchState *env)
     env->kvm_state = s;
     env->kvm_vcpu_dirty = 1;
 
-    mmap_size = kvm_ioctl(s, KVM_GET_VCPU_MMAP_SIZE, 0);
-    if (mmap_size < 0) {
-        ret = mmap_size;
-        DPRINTF("KVM_GET_VCPU_MMAP_SIZE failed\n");
-        goto err;
-    }
+    if (!cached)
+        kvm_set_cached_vcpu_fd(env->cpu_index, env->kvm_fd);
 
-    env->kvm_run = mmap(NULL, mmap_size, PROT_READ | PROT_WRITE, MAP_SHARED,
-                        env->kvm_fd, 0);
+    env->kvm_run = mmap(NULL, s->vcpu_mmap_size, PROT_READ | PROT_WRITE,
+                        MAP_SHARED, env->kvm_fd, 0);
+
     if (env->kvm_run == MAP_FAILED) {
         ret = -errno;
         DPRINTF("mmap'ing vcpu state failed\n");
@@ -252,18 +270,32 @@ int kvm_init_vcpu(CPUArchState *env)
             (void *)env->kvm_run + s->coalesced_mmio * PAGE_SIZE;
     }
 
-    ret = kvm_arch_init_vcpu(env);
-    if (ret == 0) {
-        qemu_register_reset(kvm_reset_vcpu, env);
+    if (!cached) {
+        ret = kvm_arch_init_vcpu(env);
+        if (ret < 0) {
+            DPRINTF("kvm_arch_init_vcpu failed\n");
+            munmap(env->kvm_run, s->vcpu_mmap_size);
+            goto err;
+        }
+    }
+
+    qemu_register_reset(kvm_reset_vcpu, env);
+
+    if (!cached) {
         kvm_arch_reset_vcpu(env);
     }
+
+    ret = 0;
 err:
     return ret;
 }
 
 void kvm_fini_vcpu(CPUArchState *env)
 {
+    KVMState *s = kvm_state;
+
     qemu_unregister_reset(kvm_reset_vcpu, env);
+    munmap(env->kvm_run, s->vcpu_mmap_size);
 }
 
 /*
@@ -1379,6 +1411,21 @@ int kvm_init(void)
     ret = kvm_irqchip_create(s);
     if (ret < 0) {
         goto err;
+    }
+
+    s->vcpu_mmap_size = kvm_ioctl(s, KVM_GET_VCPU_MMAP_SIZE, 0);
+    if (s->vcpu_mmap_size < 0) {
+        ret = s->vcpu_mmap_size;
+        DPRINTF("KVM_GET_VCPU_MMAP_SIZE failed\n");
+        goto err;
+    }
+
+    s->cached_vcpu_fds = g_malloc(sizeof(int) * max_vcpus);
+    {
+        int i;
+        for (i = 0; i < max_vcpus; i++) {
+            s->cached_vcpu_fds[i] = -1;
+        }
     }
 
     kvm_state = s;
