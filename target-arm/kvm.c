@@ -72,7 +72,7 @@ int kvm_arch_init_vcpu(CPUARMState *env)
  * need to do anything special for the KVM case.
  */
 typedef struct KVMDevice {
-    struct kvm_device_address kda;
+    struct kvm_arm_device_addr kda;
     MemoryRegion *mr;
     QSLIST_ENTRY(KVMDevice) entries;
 } KVMDevice;
@@ -112,7 +112,7 @@ static void kvm_arm_machine_init_done(Notifier *notifier, void *data)
     memory_listener_unregister(&devlistener);
     QSLIST_FOREACH_SAFE(kd, &kvm_devices_head, entries, tkd) {
         if (kd->kda.addr != -1) {
-            if (kvm_vm_ioctl(kvm_state, KVM_SET_DEVICE_ADDRESS, &kd->kda) < 0) {
+            if (kvm_vm_ioctl(kvm_state, KVM_ARM_SET_DEVICE_ADDR, &kd->kda) < 0) {
                 fprintf(stderr, "KVM_SET_DEVICE_ADDRESS failed: %s\n",
                         strerror(errno));
                 abort();
