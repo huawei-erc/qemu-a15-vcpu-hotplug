@@ -64,6 +64,7 @@ static void arm_cpu_reset(CPUState *s)
     ARMCPU *cpu = ARM_CPU(s);
     ARMCPUClass *acc = ARM_CPU_GET_CLASS(cpu);
     CPUARMState *env = &cpu->env;
+    const struct arm_boot_info *info = env->boot_info;
 
     if (qemu_loglevel_mask(CPU_LOG_RESET)) {
         qemu_log("CPU Reset (CPU %d)\n", env->cpu_index);
@@ -127,6 +128,12 @@ static void arm_cpu_reset(CPUState *s)
      * tb_flush().
      */
     tb_flush(env);
+
+    /* setup registers and kernel args properly for boot on primary,
+       or trigger secondary CPU reset hook. */
+    if (info) {
+        arm_cpu_init_boot_regs(cpu, info);
+    }
 }
 
 /* arm_cpu_machine_reset_cb:

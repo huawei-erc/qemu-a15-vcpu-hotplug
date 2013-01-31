@@ -224,6 +224,30 @@ static void set_kernel_args_old(const struct arm_boot_info *info)
     }
 }
 
+void arm_cpu_init_boot_regs(ARMCPU *cpu, const struct arm_boot_info *info)
+{
+    CPUARMState *env = &cpu->env;
+
+    if (!info->is_linux) {
+        /* Jump to the entry point.  */
+        env->regs[15] = info->entry & 0xfffffffe;
+        env->thumb = info->entry & 1;
+
+    } else if (env == first_cpu) {
+        env->regs[15] = info->loader_start;
+        if (!info->dtb_filename) {
+            if (old_param) {
+                set_kernel_args_old(info);
+            } else {
+                set_kernel_args(info);
+            }
+        }
+
+    } else {
+        info->secondary_cpu_reset_hook(cpu, info);
+    }
+}
+
 static int load_dtb(hwaddr addr, const struct arm_boot_info *binfo)
 {
 #ifdef CONFIG_FDT
@@ -313,35 +337,6 @@ static int load_dtb(hwaddr addr, const struct arm_boot_info *binfo)
                 "but qemu was compiled without fdt support\n");
     return -1;
 #endif
-}
-
-static void do_cpu_reset(void *opaque)
-{
-    ARMCPU *cpu = opaque;
-    CPUARMState *env = &cpu->env;
-    const struct arm_boot_info *info = env->boot_info;
-
-    cpu_reset(CPU(cpu));
-    if (info) {
-        if (!info->is_linux) {
-            /* Jump to the entry point.  */
-            env->regs[15] = info->entry & 0xfffffffe;
-            env->thumb = info->entry & 1;
-        } else {
-            if (env == first_cpu) {
-                env->regs[15] = info->loader_start;
-                if (!info->dtb_filename) {
-                    if (old_param) {
-                        set_kernel_args_old(info);
-                    } else {
-                        set_kernel_args(info);
-                    }
-                }
-            } else {
-                info->secondary_cpu_reset_hook(cpu, info);
-            }
-        }
-    }
 }
 
 void arm_load_kernel(ARMCPU *cpu, struct arm_boot_info *info)
@@ -469,8 +464,7 @@ void arm_load_kernel(ARMCPU *cpu, struct arm_boot_info *info)
     info->is_linux = is_linux;
 
     for (; env; env = env->next_cpu) {
-        cpu = arm_env_get_cpu(env);
         env->boot_info = info;
-        qemu_register_reset(do_cpu_reset, cpu);
+        qemu_register_reset(arm_cpu_machine_reset_cb, ENV_GET_CPU(env));
     }
 }

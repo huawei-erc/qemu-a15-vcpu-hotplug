@@ -62,6 +62,7 @@ struct arm_boot_info {
     hwaddr entry;
 };
 void arm_load_kernel(ARMCPU *cpu, struct arm_boot_info *info);
+void arm_cpu_init_boot_regs(ARMCPU *cpu, const struct arm_boot_info *info);
 void arm_cpu_machine_reset_cb(void *opaque);
 
 /* Multiplication factor to convert from system clock ticks to qemu timer
